@@ -50,6 +50,9 @@ selection() {
   perc=$2
   perc="${perc:=70}"
 
+  chmod 777 src/fs_60
+  chmod 777 src/fs_70
+  chmod 777 src/fs_80
   Rscript src/get_conditions.R $input
 
   if [[ $perc == 60 ]]
