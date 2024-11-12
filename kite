@@ -1,0 +1,224 @@
+#!/bin/bash
+
+f_arg=$1
+
+shift
+
+while getopts i:t:p:m: flag
+do
+    case "${flag}" in
+      i) input=${OPTARG};;
+      t) threds=${OPTARG};;
+      p) perc=${OPTARG};;
+      m) model=${OPTARG};;
+    esac
+done
+
+count() {
+  echo "Counting k-mers"
+  input=$1
+  threds=$2
+  threds="${threds:=4}"
+
+  Rscript src/create_samples.R $input
+
+  x=$(ls training/ | wc -l)
+  y=$(($x / 2))
+  y=$((($y*5)/100))
+  if [[ $y < 3 ]]
+  then
+      y=3
+  fi
+
+  # Running kmtricks
+  kmtricks pipeline --file samples --run-dir temp --kmer-size 31 -t $threds --hard-min 4 --soft-min 4 --recurrence-min $y --focus 0 --mode kmer:count:bin --cpr --until merge
+  kmtricks aggregate --run-dir temp --matrix kmer --cpr-in --format text --sorted -t $threds > matrix.tsv
+
+  # Preparing matrix
+  awk -F":" '{print $1}' samples > samples_name.tsv #get only the samples name
+  awk '{print $1}' samples_name.tsv | awk 'BEGIN { ORS = " " } { print }' > testfile.tmp && mv testfile.tmp samples_name.tsv #convert the rows to column, splitted by space
+  sed -i '1s/^/tag /' samples_name.tsv #add the word "tag" in the begin of the file
+  sed -i -e '$a\' samples_name.tsv # broken line (system rules)
+  sed -i -e '1 e cat samples_name.tsv' matrix.tsv #put the header in the matrix
+  rm samples_name.tsv
+  rm -r temp/
+  rm samples
+}
+
+selection() {
+  input=$1
+  perc=$2
+  perc="${perc:=70}"
+
+  Rscript src/get_conditions.R $input
+
+  if [[ $perc == 60 ]]
+  then
+      echo "Selecting k-mers with 60% of frequency"
+      src/fs_60 matrix.tsv
+      Rscript src/generating_fa.R
+  elif [[ $perc == 80 ]]
+  then
+      echo "Selecting k-mers with 80% of frequency"
+      src/fs_80 matrix.tsv
+      Rscript src/generating_fa.R
+  else
+      echo "Selecting k-mers with 70% of frequency"
+      src/fs_70 matrix.tsv
+      Rscript src/generating_fa.R
+  fi
+  rm samples_cond
+
+}
+
+training() {
+  echo "Training models"
+  input=$1
+  threds=$2
+  threds="${threds:=4}"
+  model=$3
+  model="${model:=a}"
+
+  n_kmers=$(wc -l < output.tsv)
+
+  if [[ $n_kmers < 100001 ]];
+  then
+    Rscript src/putting_classes.R $input
+    #rm samples
+    mkdir -p ml_models
+    #chmod 777 src/dt.py
+    #chmod 777 src/lr.py
+    #chmod 777 src/rf.py
+    #chmod 777 src/xgb.py
+
+
+    if [[ $model == "s" ]];
+    then
+        echo "Simple models:"
+        echo "  traning DT"
+        OMP_NUM_THREADS=$threds src/dt.py
+        echo "  traning LR"
+        OMP_NUM_THREADS=$threds src/lr.py
+    elif [[ $model == "c" ]];
+    then
+        echo "Complex models:"
+        echo "  traning RF"
+        OMP_NUM_THREADS=$threds src/rf.py
+        echo "  traning XGB"
+        OMP_NUM_THREADS=$threds src/xgb.py
+    else
+        echo "All models:"
+        echo "  traning DT"
+        OMP_NUM_THREADS=$threds src/dt.py
+        echo "  traning LR"
+        OMP_NUM_THREADS=$threds src/lr.py
+        echo "  traning RF"
+        OMP_NUM_THREADS=$threds src/rf.py
+        echo "  traning XGB"
+        OMP_NUM_THREADS=$threds src/xgb.py
+    fi
+    #rm train_data.csv
+  else
+    echo "Too many k-mers to train ML models."
+    echo "Try to increase the percentage for k-mer frequency in selection module."
+    echo $n_kmers
+  fi
+}
+
+pipeline() {
+  input=$1
+  perc=$2
+  threds=$3
+  threds="${threds:=4}"
+  model=$4
+
+        count $input $threds
+        selection $input $perc
+        training $input $threds $model
+}
+
+prediction() {
+  input=$1
+  threds=$2
+  threds="${threds:=4}"
+  model=$3
+
+  chmod 777 src/universal_to_kmtricks_canonical.py
+  chmod 777 src/prediction_simple.py
+  chmod 777 src/prediction_complex.py
+  chmod 777 src/prediction_all.py
+
+  Rscript src/get_samples.R $input
+
+  samples=samples_cond
+
+  while IFS= read -r line
+  do
+    zcat test/${line}_1.fastq.gz test/${line}_2.fastq.gz | back_to_sequences -t $threds --in-kmers kmers.fa -k 31 --out-kmers ${line}.tsv
+    src/universal_to_kmtricks_canonical.py ${line}.tsv > ${line}_canon.tsv
+    rm ${line}.tsv
+  done < "$samples"
+
+  mv samples_cond samples_cond.tsv
+
+  Rscript src/generating_test_table.R input_test.csv
+  rm *_canon.tsv
+
+  if [[ $model == "s" ]];
+  then
+      echo "Predicting with simple models"
+      src/prediction_simple.py
+  elif [[ $model == "c" ]];
+  then
+      echo "Predicting with complex models"
+      src/prediction_complex.py
+  else
+      echo "Predicting with all models"
+      src/prediction_all.py
+  fi
+
+}
+
+annotation() {
+  index=$1
+  threds=$2
+  STAR --genomeDir $index --readFilesType Fastx  --readFilesIn kmers.fa --outFileNamePrefix kmers_ --outStd Log --runMode alignReads --runThreadN $threds --outSAMunmapped Within
+  samtools view -b kmers_Aligned.out.sam |samtools sort > kmers_Aligned.out.bam
+}
+
+
+if [ $f_arg == "-h" ]; then
+  echo "DESCRIPTION"
+  echo "kite pipeline -i [filename] -p [60,70,80] -t [n] -m [s,c,a]"
+  echo "-i      input file with samples name"
+  echo "-p      percentage for k-mer frequency [60, 70, 80]"
+  echo "-m      machine learning models (s=simple models, c=complex models, a=all)"
+  echo "-t      number of threads"
+  exit 0
+fi
+
+if [ $f_arg == "pipeline" ]; then
+  pipeline $input $perc $threds $model
+  exit 0
+fi
+
+if [ $f_arg == "count" ]; then
+  count $input $threds
+fi
+
+if [ $f_arg == "selection" ]; then
+  selection $input $perc
+fi
+
+if [ $f_arg == "training" ]; then
+  training $input $threds $model
+fi
+
+if [ $f_arg == "prediction" ]; then
+  prediction $input $threds $model
+fi
+
+if [ $f_arg == "annotation" ]; then
+  prediction $index $threds
+  exit 0
+fi
