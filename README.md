@@ -7,8 +7,9 @@
     -p percentage for k-mer frequency [60, 70, 80]
     -t number of threads
     -m machine learning models [s, c, a] (s=simple models, c=complex models, a=all)
-./kite pipeline -i input_training.csv -p 80 -m a  -t 8
 ```
+*./kite pipeline -i input_training.csv -p 80 -m a  -t 8*
+
 
 ## Count module
 ```
