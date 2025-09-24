@@ -1,6 +1,6 @@
 # KITE (K-mer Integration for Transcriptomic Exploration) ![Bash](https://img.shields.io/badge/language-Bash-yellow) ![R](https://img.shields.io/badge/language-R-blue) ![Python](https://img.shields.io/badge/language-Python-orange)
 
-KITE is a **bioinformatics pipeline for differential k-mer analysis from RNA-seq data**. It provides modules for **k-mer counting, filtering, machine learning classification**, and a **full end-to-end workflow**.
+KITE is a bioinformatics pipeline for differential k-mer analysis from RNA-seq data. It provides modules for k-mer counting, filtering, machine learning methods, and a full end-to-end workflow.
 
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [Kmtricks Documentation](https://github.com/tseemann/kmtricks) | [XGBoost Python](https://xgboost.readthedocs.io/en/stable/) | [R Project](https://www.r-project.org/)
