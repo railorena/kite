@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
 
-source $(conda info --base)/etc/profile.d/conda.sh
-conda activate kite
-
 # -------- HELP --------
 show_help() {
   echo "DESCRIPTION"
@@ -57,7 +54,7 @@ kcount() {
   Rscript src/create_samples.R "$input" "$directory"
 
   # Calculate recurrence-min parameter for kmtricks
-  x=$(ls training/ | wc -l)
+  x=$(ls $directory | wc -l)
   y=$((x / 2))
   y=$(( (y * 5) / 100 ))
   if [[ $y < 3 ]]; then y=3; fi
